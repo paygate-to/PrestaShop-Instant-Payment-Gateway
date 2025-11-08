@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<module>
+    <name>instantpayment_gateway</name>
+    <displayName><![CDATA[Instant Payment Gateway (PayGate.to)]]></displayName>
+    <version><![CDATA[1.0.0]]></version>
+    <description><![CDATA[Multi-Providers credit card hosted payment gateway with automatic customer geo location detection for highest conversion and maximum security.]]></description>
+    <author><![CDATA[PayGate.to]]></author>
+    <tab><![CDATA[payments_gateways]]></tab>
+	<confirmUninstall><![CDATA[Are you sure you want to uninstall?]]></confirmUninstall>
+    <is_configurable>1</is_configurable>
+    <need_instance>1</need_instance>
+</module>
