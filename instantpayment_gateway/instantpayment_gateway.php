@@ -67,7 +67,7 @@ class Instantpayment_gateway extends PaymentModule
             'INP_DESCRIPTION' => $this->l('Pay using configured payment provider.'),
             'INP_CUSTOM_DOMAIN' => 'checkout.paygate.to',
             'INP_ICON_URL' => '',
-            'INP_API_URL' => 'https://checkout.paygate.to',
+            'INP_API_URL' => 'checkout.paygate.to',
             'INP_AUTH_TYPE' => 'bearer',
             'INP_AUTH_VALUE' => '',
             'INP_WALLET' => '',
