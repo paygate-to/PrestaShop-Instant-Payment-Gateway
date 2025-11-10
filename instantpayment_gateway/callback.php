@@ -35,7 +35,6 @@ try {
     $nonce_in   = isset($_GET['nonce']) ? trim($_GET['nonce']) : '';
 	$order = new Order($order_id);
     if (!$order_id) { json_response('error', 'Missing order ID.', 400); $order->setCurrentState(Configuration::get('PS_OS_ERROR')); return false; }
-if (!$address_in) { json_response('error', 'Missing address_in.', 400); $order->setCurrentState(Configuration::get('PS_OS_ERROR')); return false; }
     if (!$nonce_in) { json_response('error', 'Missing nonce.', 400); $order->setCurrentState(Configuration::get('PS_OS_ERROR')); return false; }
 
     // === Validate order ===
@@ -61,38 +60,10 @@ if (!$address_in) { json_response('error', 'Missing address_in.', 400); $order->
 		return false;
     }
 
-    // === Validate address ===
-    $stored_address = $paymentData['polygon_address_in'] ?: $paymentData['address_in'];
-    if ($stored_address && strcasecmp($stored_address, $address_in) !== 0) {
-		$order->setCurrentState(Configuration::get('PS_OS_ERROR'));
-        json_response('error', 'Payment address mismatch.', 403);
-		return false;
-    }
-
     // === Verify payment via PayGate ===
-    $ipn_token = trim($paymentData['ipn_token']);
-    if (!$ipn_token) {
-        json_response('error', 'Missing IPN token for verification.', 400);
-		return false;
-    }
-
-    $check_url = "https://api.paygate.to/control/payment-status.php?ipn_token=" . urlencode($ipn_token);
-    $response_raw = @file_get_contents($check_url);
-    cb_log("PayGate response: " . $response_raw);
-
-    /* if (!$response_raw) {
-        json_response('error', 'Failed to reach PayGate API.', 502);
-    }
- */
-    $data = json_decode($response_raw, true);
-    /* if (!isset($data['status'])) {
-        json_response('error', 'Invalid API response format.', 500);
-    }
- */
-    // === Check payment amount ===
     $value_coin = $_GET['value_coin'];
-    $coin = $data['coin'] ?? 'polygon_usdc';
-    $txid_out = $data['txid_out'] ?? '';
+    $coin = $_GET['coin'];
+    $txid_out = $_GET['txid_out'];
 
     $order_total = (float)$order->total_paid;
     $currency = new Currency($order->id_currency);

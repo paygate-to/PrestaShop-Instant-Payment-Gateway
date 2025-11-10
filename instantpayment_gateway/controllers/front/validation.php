@@ -277,11 +277,10 @@ class Instantpayment_gatewayValidationModuleFrontController extends ModuleFrontC
 		
 		$currencyUSD = 'USD';
         
-        $checkout_url = $hosted_domain . "/pay.php?address=" . $plain_address_in
+        $checkout_url = "https://" . rtrim(str_replace(['https://','http://'], '', $hosted_domain), '/') . "/pay.php?address=" . $plain_address_in
             . "&amount=" . $total_paid_tax_incl
             . "&email=" . $email
-            . "&currency=" . $currencyUSD
-            . "&domain=" . $hosted_domain;
+            . "&currency=" . $currency_iso;
 
         file_put_contents($log, "[".date('Y-m-d H:i:s')."] Redirect URL: {$checkout_url}\n", FILE_APPEND);
 
