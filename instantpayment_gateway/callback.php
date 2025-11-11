@@ -33,9 +33,10 @@ try {
     $order_id   = isset($_GET['number']) ? (int) $_GET['number'] : 0;
     $address_in = isset($_GET['address_in']) ? trim($_GET['address_in']) : '';
     $nonce_in   = isset($_GET['nonce']) ? trim($_GET['nonce']) : '';
+	if (!$order_id) {
+    json_response('error', 'Missing order ID.', 400);
+}
 	$order = new Order($order_id);
-    if (!$order_id) { json_response('error', 'Missing order ID.', 400); $order->setCurrentState(Configuration::get('PS_OS_ERROR')); return false; }
-    if (!$nonce_in) { json_response('error', 'Missing nonce.', 400); $order->setCurrentState(Configuration::get('PS_OS_ERROR')); return false; }
 
     // === Validate order ===
     
@@ -52,6 +53,10 @@ try {
         json_response('error', 'No payment record found for this order.', 404);
 		return false;
     }
+	
+	if (!$nonce_in) {
+    json_response('error', 'Missing nonce.', 400);
+}
 
     // === Validate nonce ===
     if (empty($paymentData['nonce']) || $paymentData['nonce'] !== $nonce_in) {
@@ -64,29 +69,32 @@ try {
     $value_coin = $_GET['value_coin'];
     $coin = $_GET['coin'];
     $txid_out = $_GET['txid_out'];
-
     $order_total = (float)$order->total_paid;
     $currency = new Currency($order->id_currency);
-    $order_total_usd = Tools::convertPriceFull($order_total, $currency, new Currency(Currency::getIdByIsoCode('USD')));
-    $threshold = $order_total_usd * 0.6;
-
-    // Convert coin → USD
-    $convert_url = "https://api.paygate.to/control/convert.php?value=" . urlencode($value_coin) . "&from=" . urlencode($coin);
+ 
+ 
+ if ($currency->iso_code !== 'USD') {
+	 
+// Convert coin → USD
+    $convert_url = "https://api.paygate.to/control/convert.php?value=" . $order_total . "&from=" . $currency->iso_code;
     $convert_response = @file_get_contents($convert_url);
-    $paid_usd = $value_coin;
     if ($convert_response) {
         $conv = json_decode($convert_response, true);
-        if (isset($conv['value_coin'])) $paid_usd = (float)$conv['value_coin'];
-    }
+        if (isset($conv['value_coin'])) $order_total_usd = (float)$conv['value_coin'];
+    }	 
+	 
+ } else {
+$order_total_usd = $order_total;	 
+ }
+    $threshold = $order_total_usd * 0.6;
 
-    if ($paid_usd < $threshold) {
+    if ($value_coin < $threshold) {
         Db::getInstance()->update('instantorder_paymentdetail', [
             'status' => 'failed',
             'txid_out' => pSQL($txid_out),
             'updated_at' => date('Y-m-d H:i:s'),
         ], 'id = ' . (int)$paymentData['id']);
 
-        $order->setCurrentState(Configuration::get('PS_OS_ERROR'));
         $message = new Message();
 		$message->id_order = (int)$order->id;
 		$message->message = 'Payment below threshold. TXID: ' . pSQL($txid_out);
