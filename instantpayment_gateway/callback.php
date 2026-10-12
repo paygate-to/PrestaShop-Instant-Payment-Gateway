@@ -3,6 +3,9 @@
 
 require_once dirname(__FILE__) . '/../../config/config.inc.php';
 require_once dirname(__FILE__) . '/../../init.php';
+if (!class_exists('Instantpayment_gateway')) {
+    require_once dirname(__FILE__) . '/instantpayment_gateway.php';
+}
 
 // === JSON response helper ===
 function json_response($status, $message, $code = 200)
@@ -19,12 +22,13 @@ function json_response($status, $message, $code = 200)
 // === Logger ===
 function cb_log($msg)
 {
-    $file = __DIR__ . '/callback_log.txt';
-    file_put_contents($file, "[" . date('Y-m-d H:i:s') . "] " . $msg . "\n", FILE_APPEND);
+    Instantpayment_gateway::log("[" . date('Y-m-d H:i:s') . "] " . $msg . "\n");
 }
 
-// === Start ===
-cb_log("CALLBACK HIT: " . print_r($_GET, true));
+// === Start === (the nonce is not logged)
+$cb_logged = $_GET;
+unset($cb_logged['nonce']);
+cb_log("CALLBACK HIT: " . print_r($cb_logged, true));
 
 try {
     
@@ -49,7 +53,6 @@ try {
     $table = _DB_PREFIX_ . 'instantorder_paymentdetail';
     $paymentData = Db::getInstance()->getRow('SELECT * FROM `' . pSQL($table) . '` WHERE order_id = ' . (int)$order_id);
     if (!$paymentData) {
-		$order->setCurrentState(Configuration::get('PS_OS_ERROR'));
         json_response('error', 'No payment record found for this order.', 404);
 		return false;
     }
@@ -59,16 +62,21 @@ try {
 }
 
     // === Validate nonce ===
-    if (empty($paymentData['nonce']) || $paymentData['nonce'] !== $nonce_in) {
-		$order->setCurrentState(Configuration::get('PS_OS_ERROR'));
+    if (empty($paymentData['nonce']) || !hash_equals((string)$paymentData['nonce'], $nonce_in)) {
         json_response('error', 'Invalid nonce.', 403);
 		return false;
     }
 
+    // === Already paid: ignore repeated callbacks ===
+    if ($paymentData['status'] === 'paid') {
+        json_response('success', 'Order already marked as paid.', 200);
+		return true;
+    }
+
     // === Verify payment via PayGate ===
-    $value_coin = $_GET['value_coin'];
-    $coin = $_GET['coin'];
-    $txid_out = $_GET['txid_out'];
+    $value_coin = isset($_GET['value_coin']) ? (float) $_GET['value_coin'] : 0;
+    $coin = isset($_GET['coin']) ? $_GET['coin'] : '';
+    $txid_out = isset($_GET['txid_out']) ? $_GET['txid_out'] : '';
     $order_total = (float)$order->total_paid;
     $currency = new Currency($order->id_currency);
  
@@ -76,12 +84,15 @@ try {
  if ($currency->iso_code !== 'USD') {
 	 
 // Convert coin → USD
-    $convert_url = "https://api.paygate.to/control/convert.php?value=" . $order_total . "&from=" . $currency->iso_code;
+    $convert_url = "https://" . Instantpayment_gateway::apiHost() . "/control/convert.php?value=" . $order_total . "&from=" . $currency->iso_code;
     $convert_response = @file_get_contents($convert_url);
     if ($convert_response) {
         $conv = json_decode($convert_response, true);
         if (isset($conv['value_coin'])) $order_total_usd = (float)$conv['value_coin'];
     }	 
+    if (!isset($order_total_usd)) {
+        json_response('error', 'Currency conversion failed.', 502);
+    }
 	 
  } else {
 $order_total_usd = $order_total;	 
@@ -108,11 +119,11 @@ $order_total_usd = $order_total;
 
     // === Mark as paid ===
     Db::getInstance()->update('instantorder_paymentdetail', [
-        'value_coin' => pSQL($value_coin),
+        'value_coin' => pSQL((string) $value_coin),
         'coin'       => pSQL($coin),
         'txid_out'   => pSQL($txid_out),
         'status'     => 'paid',
-        'nonce'      => $_GET['nonce'],
+        'nonce'      => pSQL($nonce_in),
         'updated_at' => date('Y-m-d H:i:s'),
     ], 'id = ' . (int)$paymentData['id']);
 

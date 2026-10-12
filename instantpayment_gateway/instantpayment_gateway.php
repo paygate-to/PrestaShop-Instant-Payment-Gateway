@@ -11,7 +11,7 @@ class Instantpayment_gateway extends PaymentModule
     {
         $this->name = 'instantpayment_gateway';
         $this->tab = 'payments_gateways';
-        $this->version = '1.0.0';
+        $this->version = '1.1.0';
         $this->author = 'PayGate.to';
         $this->bootstrap = true;
 
@@ -31,7 +31,32 @@ class Instantpayment_gateway extends PaymentModule
             && $this->registerHook('displayAdminOrderMainBottom')
             && $this->registerHook('paymentReturn')
             && $this->initConfiguration()
-            && $this->createPaymentDetailTable();
+            && $this->createPaymentDetailTable()
+            && $this->removeLegacyLogs();
+    }
+
+    /**
+     * Debug log, written to PrestaShop's protected var/logs folder (never inside the public module folder).
+     */
+    public static function log($msg)
+    {
+        $dir = _PS_ROOT_DIR_ . '/var/logs';
+        if (is_dir($dir) && is_writable($dir)) {
+            @file_put_contents($dir . '/instantpayment_gateway.log', $msg, FILE_APPEND);
+        }
+    }
+
+    /**
+     * Delete the debug logs that versions before 1.1.0 wrote inside the public module folder.
+     */
+    public function removeLegacyLogs()
+    {
+        foreach (['callback_log.txt', 'controllers/front/debug_log.txt'] as $file) {
+            if (file_exists(dirname(__FILE__) . '/' . $file)) {
+                @unlink(dirname(__FILE__) . '/' . $file);
+            }
+        }
+        return true;
     }
 
     private function createPaymentDetailTable()
@@ -68,6 +93,7 @@ class Instantpayment_gateway extends PaymentModule
             'INP_CUSTOM_DOMAIN' => 'checkout.paygate.to',
             'INP_ICON_URL' => '',
             'INP_API_URL' => 'checkout.paygate.to',
+            'INP_API_DOMAIN' => '',
             'INP_AUTH_TYPE' => 'bearer',
             'INP_AUTH_VALUE' => '',
             'INP_WALLET' => '',
@@ -91,7 +117,7 @@ class Instantpayment_gateway extends PaymentModule
     {
         $keys = [
             'INP_ENABLED', 'INP_TITLE', 'INP_DESCRIPTION', 'INP_CUSTOM_DOMAIN', 'INP_ICON_URL',
-            'INP_API_URL', 'INP_AUTH_TYPE', 'INP_AUTH_VALUE', 'INP_WALLET',
+            'INP_API_URL', 'INP_API_DOMAIN', 'INP_AUTH_TYPE', 'INP_AUTH_VALUE', 'INP_WALLET',
             'INP_TEST_MODE', 'INP_REDIRECT_MODE', 'INP_SUCCESS_KEY', 'INP_SUCCESS_VALUE'
         ];
         foreach ($keys as $key) {
@@ -134,7 +160,7 @@ class Instantpayment_gateway extends PaymentModule
         if (Tools::isSubmit('submitInstantPay')) {
             $fields = [
                 'INP_ENABLED','INP_TITLE','INP_DESCRIPTION','INP_CUSTOM_DOMAIN','INP_ICON_URL',
-                'INP_API_URL','INP_AUTH_TYPE','INP_AUTH_VALUE','INP_WALLET',
+                'INP_API_URL','INP_API_DOMAIN','INP_AUTH_TYPE','INP_AUTH_VALUE','INP_WALLET',
                 'INP_TEST_MODE','INP_REDIRECT_MODE','INP_SUCCESS_KEY','INP_SUCCESS_VALUE'
             ];
 
@@ -185,6 +211,13 @@ class Instantpayment_gateway extends PaymentModule
                     ],
                     [
                         'type' => 'text',
+                        'label' => $this->l('API Domain'),
+                        'name' => 'INP_API_DOMAIN',
+                        'placeholder' => 'api.paygate.to',
+                        'desc' => $this->l('Your dedicated API endpoint from paygate.to (get it at paygate.to/white-label-api-custom-domain-guide/#dedicated-endpoint). Leave empty to use the shared api.paygate.to.'),
+                    ],
+                    [
+                        'type' => 'text',
                         'label' => $this->l('Wallet'),
                         'name' => 'INP_WALLET',
                     ],
@@ -207,7 +240,7 @@ class Instantpayment_gateway extends PaymentModule
 
         $fields = [
             'INP_ENABLED','INP_TITLE','INP_DESCRIPTION','INP_CUSTOM_DOMAIN','INP_ICON_URL',
-            'INP_API_URL','INP_AUTH_TYPE','INP_AUTH_VALUE','INP_WALLET',
+            'INP_API_URL','INP_API_DOMAIN','INP_AUTH_TYPE','INP_AUTH_VALUE','INP_WALLET',
             'INP_TEST_MODE','INP_REDIRECT_MODE','INP_SUCCESS_KEY','INP_SUCCESS_VALUE'
         ];
 
@@ -217,6 +250,20 @@ class Instantpayment_gateway extends PaymentModule
         }
 
         return $helper->generateForm([$fields_form]);
+    }
+
+    /**
+     * API host: dedicated API endpoint from settings, or the shared api.paygate.to when empty/invalid
+     */
+    public static function apiHost()
+    {
+        $host = strtolower(trim((string)Configuration::get('INP_API_DOMAIN')));
+        $host = preg_replace('#^https?://#', '', $host);
+        $host = rtrim(explode('/', $host, 2)[0], '.');
+        if ($host === '' || !preg_match('/^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/', $host)) {
+            return 'api.paygate.to';
+        }
+        return $host;
     }
 
     public function hookDisplayHeader($params)
