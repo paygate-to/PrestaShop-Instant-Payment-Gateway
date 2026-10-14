@@ -67,6 +67,15 @@ try {
 		return false;
     }
 
+    // === Verify PayGate's signature over the exact callback URL ===
+    // Proves the callback came from PayGate and that value_coin was not changed.
+    $signature = Instantpayment_gateway::verifyPaygateSignature($paymentData['callback_url']);
+    if (!$signature['verified']) {
+        cb_log("Rejected callback for order {$order_id}: PayGate signature " . $signature['reason']);
+        json_response('error', 'Invalid PayGate signature (' . $signature['reason'] . ').', 403);
+        return false;
+    }
+
     // === Already paid: ignore repeated callbacks ===
     if ($paymentData['status'] === 'paid') {
         json_response('success', 'Order already marked as paid.', 200);
@@ -97,7 +106,10 @@ try {
  } else {
 $order_total_usd = $order_total;	 
  }
-    $threshold = $order_total_usd * 0.6;
+    // Fees tolerance setting (default 0.60: at least 60% of the total must arrive; 0 disables the check)
+    $tolerance = Configuration::get('INP_TOLERANCE');
+    $tolerance = is_numeric($tolerance) ? max(0.0, min(1.0, (float) $tolerance)) : 0.60;
+    $threshold = $order_total_usd * $tolerance;
 
     if ($value_coin < $threshold) {
         Db::getInstance()->update('instantorder_paymentdetail', [
@@ -113,7 +125,7 @@ $order_total_usd = $order_total;
 		$message->add();
 
 		$order->setCurrentState(Configuration::get('PS_OS_ERROR'));
-        json_response('failed', 'Payment received is less than 60% of the order total.', 400);
+        json_response('failed', 'Payment received is below the fees tolerance (' . round($tolerance * 100) . '% of the order total required).', 400);
 		return false;
     }
 

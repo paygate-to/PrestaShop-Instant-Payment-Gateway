@@ -144,7 +144,12 @@ class Instantpayment_gatewayValidationModuleFrontController extends ModuleFrontC
 
             $order->reference = Order::generateReference();
 
-            $state = (int)Configuration::get('PS_OS_CHEQUE');
+            // New orders wait in "Awaiting card payment" until PayGate confirms the payment.
+            $state = (int)Configuration::get('INP_OS_AWAITING');
+            if (!$state || !Validate::isLoadedObject(new OrderState($state))) {
+                $this->module->installOrderState();
+                $state = (int)Configuration::get('INP_OS_AWAITING');
+            }
             
             $order->current_state = $state;
 
@@ -180,14 +185,8 @@ class Instantpayment_gatewayValidationModuleFrontController extends ModuleFrontC
             $orderCarrier->shipping_cost_tax_excl = $order->total_shipping;
             $orderCarrier->add();
 
-            // ✅ Add OrderPayment
-            $orderPayment = new OrderPayment();
-            $orderPayment->order_reference = $order->reference;
-            $orderPayment->id_currency = $order->id_currency;
-            $orderPayment->amount = $order->total_paid;
-            $orderPayment->payment_method = 'Instant Payment';
-            $orderPayment->conversion_rate = 1.0;
-            $orderPayment->add();
+            // No OrderPayment yet: PrestaShop records the payment when the order moves to
+            // "Payment accepted" after PayGate's confirmation.
 
             // ✅ Add order history
             $history = new OrderHistory();

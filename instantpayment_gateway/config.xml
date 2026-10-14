@@ -2,7 +2,7 @@
 <module>
     <name>instantpayment_gateway</name>
     <displayName><![CDATA[Instant Payment Gateway (PayGate.to)]]></displayName>
-    <version><![CDATA[1.1.0]]></version>
+    <version><![CDATA[1.2.0]]></version>
     <description><![CDATA[Multi-Providers credit card hosted payment gateway with automatic customer geo location detection for highest conversion and maximum security.]]></description>
     <author><![CDATA[PayGate.to]]></author>
     <tab><![CDATA[payments_gateways]]></tab>

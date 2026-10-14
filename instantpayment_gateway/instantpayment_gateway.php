@@ -11,7 +11,7 @@ class Instantpayment_gateway extends PaymentModule
     {
         $this->name = 'instantpayment_gateway';
         $this->tab = 'payments_gateways';
-        $this->version = '1.1.0';
+        $this->version = '1.2.0';
         $this->author = 'PayGate.to';
         $this->bootstrap = true;
 
@@ -32,7 +32,99 @@ class Instantpayment_gateway extends PaymentModule
             && $this->registerHook('paymentReturn')
             && $this->initConfiguration()
             && $this->createPaymentDetailTable()
+            && $this->installOrderState()
             && $this->removeLegacyLogs();
+    }
+
+    /**
+     * "Awaiting card payment" order state, created once and reused on reinstall.
+     * New orders wait in this state until PayGate confirms the payment.
+     */
+    public function installOrderState()
+    {
+        $idState = (int) Configuration::get('INP_OS_AWAITING');
+        if ($idState && Validate::isLoadedObject(new OrderState($idState))) {
+            return true;
+        }
+
+        $state = new OrderState();
+        $state->name = [];
+        foreach (Language::getLanguages(false) as $language) {
+            $state->name[(int) $language['id_lang']] = 'Awaiting card payment';
+        }
+        $state->module_name = $this->name;
+        $state->color = '#4169E1';
+        $state->send_email = false;
+        $state->logable = false;
+        $state->invoice = false;
+        $state->hidden = false;
+        $state->unremovable = true;
+        $state->delivery = false;
+        $state->shipped = false;
+        $state->paid = false;
+        $state->pdf_invoice = false;
+        $state->pdf_delivery = false;
+
+        if (!$state->add()) {
+            return false;
+        }
+
+        return Configuration::updateValue('INP_OS_AWAITING', (int) $state->id);
+    }
+
+    /**
+     * Verify PayGate's RSA signature (X-PayGate-Signature / X-PayGate-Key-Id) on the current request.
+     * $registeredCallback is the callback URL this module registered; the signed string is its
+     * scheme, host and path plus the raw query string exactly as received.
+     * https://paygate.to/docs/payment-gateway-api/#callback-event
+     *
+     * @return array verified (bool), reason (string)
+     */
+    public static function verifyPaygateSignature($registeredCallback)
+    {
+        $b64 = isset($_SERVER['HTTP_X_PAYGATE_SIGNATURE']) ? trim((string) $_SERVER['HTTP_X_PAYGATE_SIGNATURE']) : '';
+        if ($b64 === '') {
+            return ['verified' => false, 'reason' => 'signature_absent'];
+        }
+        if (!function_exists('openssl_verify')) {
+            return ['verified' => false, 'reason' => 'openssl_unavailable'];
+        }
+
+        $keyId = isset($_SERVER['HTTP_X_PAYGATE_KEY_ID']) ? trim((string) $_SERVER['HTTP_X_PAYGATE_KEY_ID']) : '';
+        if ($keyId === '') {
+            $keyId = 'v1';
+        }
+        if (!preg_match('/^[A-Za-z0-9_-]{1,32}$/', $keyId)) {
+            return ['verified' => false, 'reason' => 'unknown_key_id'];
+        }
+        $pemFile = dirname(__FILE__) . '/keys/paygate_callback_public_' . $keyId . '.pem';
+        $pem = is_readable($pemFile) ? file_get_contents($pemFile) : false;
+        if (!is_string($pem) || $pem === '') {
+            return ['verified' => false, 'reason' => 'unknown_key_id'];
+        }
+        $publicKey = openssl_pkey_get_public($pem);
+        if ($publicKey === false) {
+            return ['verified' => false, 'reason' => 'bad_public_key'];
+        }
+
+        $raw = base64_decode($b64, true);
+        if ($raw === false || $raw === '') {
+            return ['verified' => false, 'reason' => 'signature_not_base64'];
+        }
+
+        $parts = parse_url((string) $registeredCallback);
+        if (!is_array($parts) || empty($parts['scheme']) || empty($parts['host'])) {
+            return ['verified' => false, 'reason' => 'no_registered_callback'];
+        }
+        $base = $parts['scheme'] . '://' . $parts['host'] . (isset($parts['port']) ? ':' . (int) $parts['port'] : '') . (isset($parts['path']) ? $parts['path'] : '/');
+        $query = isset($_SERVER['QUERY_STRING']) ? (string) $_SERVER['QUERY_STRING'] : '';
+        $signed = ($query === '') ? $base : $base . '?' . $query;
+
+        $result = openssl_verify($signed, $raw, $publicKey, OPENSSL_ALGO_SHA256);
+        if ($result === 1) {
+            return ['verified' => true, 'reason' => ''];
+        }
+        return ['verified' => false, 'reason' => ($result === -1) ? 'openssl_error' : 'signature_mismatch'];
     }
 
     /**
@@ -101,6 +193,7 @@ class Instantpayment_gateway extends PaymentModule
             'INP_REDIRECT_MODE' => 0,
             'INP_SUCCESS_KEY' => 'success',
             'INP_SUCCESS_VALUE' => '1',
+            'INP_TOLERANCE' => '0.60',
         ];
 
         foreach ($defaults as $k => $v) {
@@ -118,7 +211,7 @@ class Instantpayment_gateway extends PaymentModule
         $keys = [
             'INP_ENABLED', 'INP_TITLE', 'INP_DESCRIPTION', 'INP_CUSTOM_DOMAIN', 'INP_ICON_URL',
             'INP_API_URL', 'INP_API_DOMAIN', 'INP_AUTH_TYPE', 'INP_AUTH_VALUE', 'INP_WALLET',
-            'INP_TEST_MODE', 'INP_REDIRECT_MODE', 'INP_SUCCESS_KEY', 'INP_SUCCESS_VALUE'
+            'INP_TEST_MODE', 'INP_REDIRECT_MODE', 'INP_SUCCESS_KEY', 'INP_SUCCESS_VALUE', 'INP_TOLERANCE'
         ];
         foreach ($keys as $key) {
             Configuration::deleteByName($key);
@@ -161,7 +254,7 @@ class Instantpayment_gateway extends PaymentModule
             $fields = [
                 'INP_ENABLED','INP_TITLE','INP_DESCRIPTION','INP_CUSTOM_DOMAIN','INP_ICON_URL',
                 'INP_API_URL','INP_API_DOMAIN','INP_AUTH_TYPE','INP_AUTH_VALUE','INP_WALLET',
-                'INP_TEST_MODE','INP_REDIRECT_MODE','INP_SUCCESS_KEY','INP_SUCCESS_VALUE'
+                'INP_TEST_MODE','INP_REDIRECT_MODE','INP_SUCCESS_KEY','INP_SUCCESS_VALUE','INP_TOLERANCE'
             ];
 
             foreach ($fields as $field) {
@@ -222,6 +315,28 @@ class Instantpayment_gateway extends PaymentModule
                         'name' => 'INP_WALLET',
                     ],
                     [
+                        'type' => 'select',
+                        'label' => $this->l('Fees Tolerance'),
+                        'name' => 'INP_TOLERANCE',
+                        'desc' => $this->l('Select percentage to tolerate higher provider fees while detecting manipulation by bad customers at checkout page.'),
+                        'options' => [
+                            'query' => [
+                                ['id' => '0.90', 'name' => '10%'],
+                                ['id' => '0.80', 'name' => '20%'],
+                                ['id' => '0.70', 'name' => '30%'],
+                                ['id' => '0.60', 'name' => '40%'],
+                                ['id' => '0.50', 'name' => '50%'],
+                                ['id' => '0.40', 'name' => '60%'],
+                                ['id' => '0.30', 'name' => '70%'],
+                                ['id' => '0.20', 'name' => '80%'],
+                                ['id' => '0.10', 'name' => '90%'],
+                                ['id' => '0', 'name' => $this->l('Disabled amount detection')],
+                            ],
+                            'id' => 'id',
+                            'name' => 'name',
+                        ],
+                    ],
+                    [
                         'type' => 'text',
                         'label' => $this->l('Icon URL'),
                         'name' => 'INP_ICON_URL',
@@ -241,7 +356,7 @@ class Instantpayment_gateway extends PaymentModule
         $fields = [
             'INP_ENABLED','INP_TITLE','INP_DESCRIPTION','INP_CUSTOM_DOMAIN','INP_ICON_URL',
             'INP_API_URL','INP_API_DOMAIN','INP_AUTH_TYPE','INP_AUTH_VALUE','INP_WALLET',
-            'INP_TEST_MODE','INP_REDIRECT_MODE','INP_SUCCESS_KEY','INP_SUCCESS_VALUE'
+            'INP_TEST_MODE','INP_REDIRECT_MODE','INP_SUCCESS_KEY','INP_SUCCESS_VALUE','INP_TOLERANCE'
         ];
 
         foreach ($fields as $field) {
