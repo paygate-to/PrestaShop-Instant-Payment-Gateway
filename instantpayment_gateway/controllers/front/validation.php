@@ -204,7 +204,8 @@ class Instantpayment_gatewayValidationModuleFrontController extends ModuleFrontC
 
         // ✅ Continue PayGate redirect
         $nonce = bin2hex(random_bytes(16));
-        $callback = _PS_BASE_URL_ . __PS_BASE_URI__ . 'modules/instantpayment_gateway/callback.php';
+        // https when SSL is enabled: PrestaShop redirects plain-http requests to the home page
+        $callback = _PS_BASE_URL_SSL_ . __PS_BASE_URI__ . 'modules/instantpayment_gateway/callback.php';
         $callback_url = $callback . '?number=' . $orderId . '&nonce=' . $nonce;
         $wallet_api = "https://" . Instantpayment_gateway::apiHost() . "/control/wallet.php?address=" . urlencode($wallet) . "&callback=" . urlencode($callback_url);
 

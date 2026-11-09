@@ -111,7 +111,18 @@ $order_total_usd = $order_total;
     $tolerance = is_numeric($tolerance) ? max(0.0, min(1.0, (float) $tolerance)) : 0.60;
     $threshold = $order_total_usd * $tolerance;
 
-    if ($value_coin < $threshold) {
+    // Payouts arrive in USDC or USDT; some providers pay out in POL, ETH or BNB, priced in USD here
+    $native_payouts = ['polygon_pol' => 'polygon/pol', 'eth' => 'eth', 'bep20_bnb' => 'bep20/bnb'];
+    $received_usd = $value_coin;
+    if (is_string($coin) && isset($native_payouts[$coin])) {
+        $info_response = @file_get_contents("https://" . Instantpayment_gateway::apiHost() . "/crypto/" . $native_payouts[$coin] . "/info.php");
+        $info = $info_response ? json_decode($info_response, true) : null;
+        if (isset($info['prices']['USD']) && is_numeric($info['prices']['USD'])) {
+            $received_usd = $value_coin * (float) $info['prices']['USD'];
+        }
+    }
+
+    if ($received_usd < $threshold) {
         Db::getInstance()->update('instantorder_paymentdetail', [
             'status' => 'failed',
             'txid_out' => pSQL($txid_out),
