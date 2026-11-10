@@ -117,9 +117,11 @@ $order_total_usd = $order_total;
     if (is_string($coin) && isset($native_payouts[$coin])) {
         $info_response = @file_get_contents("https://" . Instantpayment_gateway::apiHost() . "/crypto/" . $native_payouts[$coin] . "/info.php");
         $info = $info_response ? json_decode($info_response, true) : null;
-        if (isset($info['prices']['USD']) && is_numeric($info['prices']['USD'])) {
-            $received_usd = $value_coin * (float) $info['prices']['USD'];
+        if (!isset($info['prices']['USD']) || !is_numeric($info['prices']['USD'])) {
+            // Temporary: the order is not changed and PayGate.to calls again
+            json_response('error', 'price unavailable', 503);
         }
+        $received_usd = $value_coin * (float) $info['prices']['USD'];
     }
 
     if ($received_usd < $threshold) {
